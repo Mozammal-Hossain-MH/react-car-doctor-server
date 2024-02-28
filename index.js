@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
+const cookieParser = require('cookie-parser');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config();
 const app = express();
@@ -7,8 +9,12 @@ const port = process.env.PORT || 5000;
 
 
 // middlewares
-app.use(cors())
-app.use(express.json())
+app.use(cors({
+    origin: ['http://localhost:5173'],
+    credentials: true
+}));
+app.use(express.json());
+app.use(cookieParser());
 
 
 
@@ -25,6 +31,32 @@ const client = new MongoClient(uri, {
 });
 
 
+// middlewares
+const logger = async (req, res, next) => {
+    console.log('called:', req.host, req.originalUrl);
+    next();
+}
+
+const verifyToken = async (req, res, next) => {
+    const token = req.cookies?.token;
+    console.log('token from middleware:', token);
+    if (!token) {
+        return res.status(403).send({ message: 'Unauthrized' });
+    }
+    jwt.verify(token, process.env.DB_SECRET, (err, decoded) => {
+        // error
+        if (err) {
+            return res.status(403).send({ message: 'Unauthrized' })
+        }
+        // if token is valid then it will be decoded
+        console.log('value in the token', decoded);
+        req.user = decoded;
+        next();
+    })
+
+}
+
+
 
 
 async function run() {
@@ -37,6 +69,23 @@ async function run() {
         const bookingCollection = client.db('CarDoctor').collection('checkout');
 
 
+        //  require('crypto').randomBytes(64).toString('hex') To generate access token
+
+        // auth related api
+        app.post('/jwt', async (req, res) => {
+            const user = req.body;
+            console.log(user);
+            const token = jwt.sign(user, process.env.DB_SECRET, { expiresIn: '1h' })
+            res
+                .cookie('token', token, {
+                    httpOnly: true,
+                    secure: false,
+                })
+                .send({ success: true });
+        })
+
+
+        // services related api
         // services
         app.get('/services', async (req, res) => {
             const cursor = serviceCollection.find();
@@ -54,7 +103,14 @@ async function run() {
 
 
         // bookings
-        app.get('/bookings', async (req, res) => {
+        app.get('/bookings', verifyToken, async (req, res) => {
+            // console.log('cookies', req.cookies.token)
+            console.log('Valid token ', req.user);
+
+            if(req.query.email !== req.user.email){
+                return res.status(403).send({message: 'forbidden'})
+            }
+
             let query = {};
             if (req.query?.email) {
                 query = { email: req.query.email }
@@ -73,12 +129,12 @@ async function run() {
         app.patch(`/bookings/:id`, async (req, res) => {
             const id = req.params.id;
             const updatedBooking = req.body;
-            const filter = {_id: new ObjectId(id)};
+            const filter = { _id: new ObjectId(id) };
             const updateDoc = {
                 $set: {
-                  status: updatedBooking.status
+                    status: updatedBooking.status
                 },
-              };
+            };
             const result = await bookingCollection.updateOne(filter, updateDoc);
             res.send(result);
         })
