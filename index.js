@@ -10,7 +10,11 @@ const port = process.env.PORT || 5000;
 
 // middlewares
 app.use(cors({
-    origin: ['http://localhost:5173'],
+    origin: [
+        // 'http://localhost:5173'
+        'https://car-doctor-adf8c.firebaseapp.com/',
+        'https://car-doctor-adf8c.web.app/'
+    ],
     credentials: true
 }));
 app.use(express.json());
@@ -32,10 +36,10 @@ const client = new MongoClient(uri, {
 
 
 // middlewares
-const logger = async (req, res, next) => {
-    console.log('called:', req.host, req.originalUrl);
-    next();
-}
+// const logger = async (req, res, next) => {
+//     console.log('called:', req.host, req.originalUrl);
+//     next();
+// }
 
 const verifyToken = async (req, res, next) => {
     const token = req.cookies?.token;
@@ -79,9 +83,16 @@ async function run() {
             res
                 .cookie('token', token, {
                     httpOnly: true,
-                    secure: false,
+                    secure: true,
+                    sameSite: 'none'
                 })
                 .send({ success: true });
+        })
+
+        app.post('/logout', async(req, res) => {
+            res
+            .clearCookie('token', {maxAge: 0})
+            .send({success: true})
         })
 
 
